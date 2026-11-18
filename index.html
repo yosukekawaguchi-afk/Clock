@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>時計</title>
+<style>
+  /* カードの外側はNotionと同じ色にして、埋め込みの枠になじませる */
+  :root { --page: #ffffff; color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --page: #191919; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --page: #191919; color-scheme: dark; }
+
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--page);
+    font-family: "Segoe UI Variable Display", "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    padding: 4px;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  /* 時間帯ごとの文字色。空の明るさに合わせて読みやすい色を選ぶ */
+  .clock {
+    --text: #1f2a37; --date: #3d4a5a;
+    --chip-bg: rgba(255,255,255,.9);
+    --weekday: #0f7b6c; --sat: #1f6fb2; --sun: #c4352b;
+    position: relative;
+    height: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    color: var(--text);
+    transition: color 60s linear;
+  }
+  .clock[data-phase="dawn"]    { --text: #2e2733; --date: #5a4d5e; }
+  .clock[data-phase="evening"] { --text: #2f2622; --date: #5e4a40; }
+  .clock[data-phase="night"]   { --text: #eef1f7; --date: #b9c3d6;
+                                 --chip-bg: rgba(255,255,255,.12);
+                                 --weekday: #8fe0cc; --sat: #9cc9f2; --sun: #ffaaa0; }
+
+  /* 空は4枚を重ね、時間帯が変わるときはゆっくり入れ替える */
+  .sky {
+    position: absolute; inset: 0;
+    opacity: 0;
+    transition: opacity 90s linear;
+  }
+  .sky.on { opacity: 1; }
+  .sky.dawn    { background: linear-gradient(180deg, #e6e4ef 0%, #f1e6e4 100%); }
+  .sky.day     { background: linear-gradient(180deg, #dce8f2 0%, #edf3f7 100%); }
+  .sky.evening { background: linear-gradient(180deg, #ecdcd6 0%, #f3e4d6 100%); }
+  .sky.night   { background: linear-gradient(180deg, #1c2333 0%, #252d40 100%); }
+
+  /* 三角形を敷き詰めた淡い模様。数字の周りは模様を薄くして読みやすさを保つ */
+  .pattern {
+    position: absolute; inset: 0;
+    -webkit-mask-image: radial-gradient(ellipse 55% 50% at 50% 52%, rgba(0,0,0,.15) 0%, #000 100%);
+            mask-image: radial-gradient(ellipse 55% 50% at 50% 52%, rgba(0,0,0,.15) 0%, #000 100%);
+  }
+  .pattern svg { width: 100%; height: 100%; display: block; }
+  .pattern .lite { fill: #ffffff; }
+  .pattern .ink  { fill: #1f2a37; }
+  .clock[data-phase="night"] .pattern .ink { fill: #000000; }
+  /* 夜は白い三角形が目立ちやすいので、模様全体を控えめにする */
+  .clock[data-phase="night"] .pattern { opacity: .3; }
+
+
+  @media (prefers-reduced-motion: reduce) {
+    .sky { transition: none; }
+  }
+
+  /* 文字 */
+  .face {
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .date {
+    display: flex;
+    align-items: center;
+    gap: 0.45em;
+    color: var(--date);
+    font-weight: 600;
+    font-size: min(7vw, 11vh);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .weekday {
+    font-size: 0.8em;
+    font-weight: 700;
+    padding: 0.12em 0.5em;
+    border-radius: 999px;
+    background: var(--chip-bg);
+    color: var(--weekday);
+  }
+  .weekday.sat { color: var(--sat); }
+  .weekday.sun { color: var(--sun); }
+  .time {
+    font-variant-numeric: tabular-nums;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    font-size: min(26vw, 40vh);
+    margin-top: 0.06em;
+  }
+  .ampm { font-size: 0.3em; font-weight: 500; margin-right: 0.15em; }
+
+  /* 天気の段。時計より一歩引いた大きさと色で、一行にまとめる */
+  .weather {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin-top: 0.35em;
+    font-size: min(5.5vw, 9vh);
+    color: var(--date);
+    white-space: nowrap;
+    min-height: 1.3em;
+  }
+  .weather[hidden] { display: none; }
+  .wx-icon { width: 1.35em; height: 1.35em; flex: none; color: var(--text); }
+  .wx-now { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .wx-range, .wx-rain { font-variant-numeric: tabular-nums; }
+  .wx-hi { color: var(--sun); font-weight: 600; }
+  .wx-lo { color: var(--sat); font-weight: 600; }
+  .wx-note { font-size: 0.8em; opacity: .75; }
+</style>
+</head>
+<body>
+  <div class="clock" id="clock">
+    <div class="sky dawn"></div>
+    <div class="sky day"></div>
+    <div class="sky evening"></div>
+    <div class="sky night"></div>
+    <div class="pattern" id="pattern"></div>
+
+    <div class="face">
+      <div class="date"><span id="md"></span><span class="weekday" id="wd"></span></div>
+      <div class="time"><span class="ampm" id="ap"></span><span id="hm">--:--</span></div>
+      <div class="weather" id="weather" hidden>
+        <span class="wx-icon" id="wxIcon"></span>
+        <span class="wx-now" id="wxNow"></span>
+        <span class="wx-range"><span class="wx-hi" id="wxHi"></span> / <span class="wx-lo" id="wxLo"></span></span>
+        <span class="wx-rain" id="wxRain"></span>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // URLの末尾で表示を切り替えられる
+  //   ?h12=1        … 12時間表示
+  //   ?at=18:30     … 指定した時刻の空を確認する(見た目のテスト用)
+  //   ?theme=dark   … 外側の余白をダーク色に固定(light も可)
+  //   ?lat=35.34&lon=139.49 … 天気を表示する場所(指定なしは藤沢市)
+  const params = new URLSearchParams(location.search);
+  const theme = params.get("theme");
+  if (theme === "dark" || theme === "light") {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+  const h12 = params.get("h12") === "1";
+  const at = (params.get("at") || "").match(/^(\d{1,2}):(\d{2})$/);
+
+  const $ = id => document.getElementById(id);
+  const clock = $("clock");
+  const days = ["日", "月", "火", "水", "木", "金", "土"];
+  const pad = n => String(n).padStart(2, "0");
+
+  // 三角形の模様。毎回同じ並びになるよう決まった順番で濃さを決める
+  (function makePattern() {
+    let seed = 11;
+    const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+    const cols = 16, rows = 10, w = 100 / cols, h = 100 / rows;
+    let shapes = "";
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = c * w, y = r * h;
+        // 1マスを対角線で2つの三角形に分け、向きを交互に変える
+        const flip = (r + c) % 2 === 0;
+        const tris = flip
+          ? [[x, y, x + w, y, x, y + h], [x + w, y, x + w, y + h, x, y + h]]
+          : [[x, y, x + w, y, x + w, y + h], [x, y, x + w, y + h, x, y + h]];
+        for (const t of tris) {
+          const v = rnd();
+          const cls = v < 0.5 ? "lite" : "ink";
+          const op = v < 0.5 ? (0.12 + v * 0.5).toFixed(2) : (0.015 + (v - 0.5) * 0.08).toFixed(3);
+          shapes += `<polygon class="${cls}" fill-opacity="${op}" points="${t.join(" ")}"/>`;
+        }
+      }
+    }
+    $("pattern").innerHTML =
+      `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${shapes}</svg>`;
+  })();
+
+  // 時刻(分)から時間帯を決める
+  function phaseOf(min) {
+    if (min >= 5 * 60 && min < 7 * 60) return "dawn";
+    if (min >= 7 * 60 && min < 16 * 60 + 30) return "day";
+    if (min >= 16 * 60 + 30 && min < 19 * 60) return "evening";
+    return "night";
+  }
+
+  function now() {
+    const d = new Date();
+    if (at) d.setHours(+at[1], +at[2], 0, 0);
+    return d;
+  }
+
+  function render() {
+    const d = now();
+    const min = d.getHours() * 60 + d.getMinutes();
+
+    // 文字
+    let h = d.getHours();
+    if (h12) {
+      $("ap").textContent = h < 12 ? "午前" : "午後";
+      h = h % 12 || 12;
+      $("hm").textContent = h + ":" + pad(d.getMinutes());
+    } else {
+      $("ap").textContent = "";
+      $("hm").textContent = pad(h) + ":" + pad(d.getMinutes());
+    }
+    $("md").textContent = (d.getMonth() + 1) + "月" + d.getDate() + "日";
+    const wd = d.getDay();
+    $("wd").textContent = days[wd];
+    $("wd").className = "weekday" + (wd === 6 ? " sat" : wd === 0 ? " sun" : "");
+
+    // 空
+    const phase = phaseOf(min);
+    clock.dataset.phase = phase;
+    document.querySelectorAll(".sky").forEach(s =>
+      s.classList.toggle("on", s.classList.contains(phase)));
+
+
+    setTimeout(render, 1000 - new Date().getMilliseconds());
+  }
+
+  // 最初の表示だけはふわっと切り替えず、すぐにその時間帯の空を出す
+  document.querySelectorAll(".sky, .clock").forEach(el => el.style.transition = "none");
+  render();
+  requestAnimationFrame(() => requestAnimationFrame(() =>
+    document.querySelectorAll(".sky, .clock").forEach(el => el.style.transition = "")));
+
+  // ---- 天気(Open-Meteo:無料・APIキー不要)----
+  const LAT = parseFloat(params.get("lat")) || 35.339;   // 藤沢市
+  const LON = parseFloat(params.get("lon")) || 139.490;
+  const WX_URL =
+    "https://api.open-meteo.com/v1/forecast" +
+    `?latitude=${LAT}&longitude=${LON}` +
+    "&current=temperature_2m,weather_code,is_day" +
+    "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+    "&timezone=Asia%2FTokyo&forecast_days=1";
+
+  // 線だけのシンプルなアイコン。色は文字色に合わせる
+  const ICONS = {
+    sun:   '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/>',
+    moon:  '<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/>',
+    partly:'<path d="M9 4.2v1.6M3.6 9.6h1.6M5.2 5.8l1.1 1.1M12.8 5.8l-1.1 1.1"/><path d="M6.6 11.4a3 3 0 0 1 5.6-1.6"/><path d="M8 19.5h9.5a3.5 3.5 0 0 0 .2-7 5 5 0 0 0-9.6 1.2A2.9 2.9 0 0 0 8 19.5z"/>',
+    cloud: '<path d="M7 18.5h10.5a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 18.5z"/>',
+    fog:   '<path d="M4 9h16M6 13h12M4 17h16"/>',
+    rain:  '<path d="M7 14.5h10.5a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 14.5z"/><path d="M8.5 17.5l-1 2.5M12.5 17.5l-1 2.5M16.5 17.5l-1 2.5"/>',
+    snow:  '<path d="M7 14.5h10.5a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 14.5z"/><path d="M8.5 18.5h.01M12 20h.01M15.5 18.5h.01" stroke-width="2.6"/>',
+    storm: '<path d="M7 14.5h10.5a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6 1.4A3.3 3.3 0 0 0 7 14.5z"/><path d="M12.5 15l-2 3.5h3l-2 3.5"/>'
+  };
+  const svg = name =>
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+
+  // 天気コード(WMO)をアイコンと日本語に変換
+  function describe(code, isDay) {
+    if (code === 0) return [isDay ? "sun" : "moon", "晴れ"];
+    if (code === 1 || code === 2) return [isDay ? "partly" : "moon", "晴れ時々くもり"];
+    if (code === 3) return ["cloud", "くもり"];
+    if (code === 45 || code === 48) return ["fog", "霧"];
+    if (code >= 51 && code <= 57) return ["rain", "霧雨"];
+    if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return ["rain", "雨"];
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return ["snow", "雪"];
+    if (code >= 95) return ["storm", "雷雨"];
+    return ["cloud", "くもり"];
+  }
+
+  async function updateWeather() {
+    try {
+      const res = await fetch(WX_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const cur = data.current, day = data.daily;
+      const [icon, label] = describe(cur.weather_code, cur.is_day === 1);
+      $("wxIcon").innerHTML = svg(icon);
+      $("wxIcon").title = label;
+      $("wxNow").textContent = Math.round(cur.temperature_2m) + "°";
+      $("wxHi").textContent = Math.round(day.temperature_2m_max[0]) + "°";
+      $("wxLo").textContent = Math.round(day.temperature_2m_min[0]) + "°";
+      const pop = day.precipitation_probability_max[0];
+      $("wxRain").textContent = pop == null ? "" : "☂ " + pop + "%";
+      $("weather").hidden = false;
+      setTimeout(updateWeather, 30 * 60 * 1000);
+    } catch (e) {
+      // 取得できないときは前回の表示を残し、5分後にもう一度試す
+      setTimeout(updateWeather, 5 * 60 * 1000);
+    }
+  }
+  updateWeather();
+</script>
+</body>
+</html>
