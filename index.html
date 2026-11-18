@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>時計</title>
+<style>
+  /* カードの外側はNotionと同じ色にして、埋め込みの枠になじませる */
+  :root { --page: #ffffff; color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --page: #191919; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --page: #191919; color-scheme: dark; }
+
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--page);
+    font-family: "Segoe UI Variable Display", "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    padding: 4px;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  /* 時間帯ごとの文字色。空の明るさに合わせて読みやすい色を選ぶ */
+  .clock {
+    --text: #17324d; --date: #17324d; --shadow: rgba(255,255,255,.55);
+    --chip-bg: rgba(255,255,255,.85);
+    --weekday: #0f7b6c; --sat: #1f6fb2; --sun: #c4352b;
+    position: relative;
+    height: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    color: var(--text);
+    transition: color 60s linear;
+  }
+  .clock[data-phase="dawn"]    { --text: #3a2440; --date: #5b3352; --shadow: rgba(255,240,230,.6); }
+  .clock[data-phase="evening"] { --text: #ffffff; --date: #fff1e0; --shadow: rgba(80,20,40,.45);
+                                 --chip-bg: rgba(255,255,255,.88); }
+  .clock[data-phase="night"]   { --text: #f2f5ff; --date: #c9d6ff; --shadow: rgba(0,0,20,.6);
+                                 --chip-bg: rgba(255,255,255,.16);
+                                 --weekday: #8fe0cc; --sat: #9cc9f2; --sun: #ffaaa0; }
+
+  /* 空は4枚を重ね、時間帯が変わるときはゆっくり入れ替える */
+  .sky {
+    position: absolute; inset: 0;
+    opacity: 0;
+    transition: opacity 90s linear;
+  }
+  .sky.on { opacity: 1; }
+  .sky.dawn    { background: linear-gradient(180deg, #a9c3e8 0%, #f3c6c9 55%, #ffdcb0 100%); }
+  .sky.day     { background: linear-gradient(180deg, #5fa8e6 0%, #9fd0f3 60%, #d9eefa 100%); }
+  .sky.evening { background: linear-gradient(180deg, #4b3a7a 0%, #c25b72 50%, #f39a5b 100%); }
+  .sky.night   { background: linear-gradient(180deg, #0b1330 0%, #18264f 60%, #2b3a6b 100%); }
+
+  /* 太陽と月は時刻に合わせて弧を描くように動く */
+  .orb {
+    position: absolute;
+    width: 14vmin; height: 14vmin;
+    margin: -7vmin 0 0 -7vmin;
+    border-radius: 50%;
+    opacity: 0;
+    transition: opacity 90s linear;
+  }
+  .orb.on { opacity: 1; }
+  .sunball {
+    background: radial-gradient(circle, #fff6c9 0%, #ffd45a 55%, #ffb43a 100%);
+    box-shadow: 0 0 6vmin 2vmin rgba(255, 210, 90, .55);
+  }
+  .moon {
+    background: #f4f1e3;
+    box-shadow: 0 0 5vmin 1vmin rgba(220, 230, 255, .35);
+  }
+  /* 欠けた部分は夜空の色で重ねて三日月に見せる */
+  .moon::after {
+    content: ""; position: absolute;
+    width: 100%; height: 100%; border-radius: 50%;
+    left: 32%; top: -14%;
+    background: #18264f;
+  }
+
+  .stars { position: absolute; inset: 0; opacity: 0; transition: opacity 90s linear; }
+  .stars.on { opacity: 1; }
+  .star {
+    position: absolute; border-radius: 50%; background: #fff;
+    animation: twinkle 4s ease-in-out infinite;
+  }
+  @keyframes twinkle { 50% { opacity: .35; } }
+
+  .clouds { position: absolute; inset: 0; opacity: 0; transition: opacity 90s linear; }
+  .clouds.on { opacity: .9; }
+  .cloud {
+    position: absolute; height: 7vmin; border-radius: 999px;
+    background: rgba(255,255,255,.75);
+    animation: drift 120s linear infinite;
+  }
+  .cloud::before, .cloud::after {
+    content: ""; position: absolute; border-radius: 50%; background: inherit;
+  }
+  .cloud::before { width: 45%; height: 150%; left: 15%; bottom: 20%; }
+  .cloud::after  { width: 35%; height: 120%; left: 50%; bottom: 25%; }
+  @keyframes drift { from { transform: translateX(-30vw); } to { transform: translateX(130vw); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .star, .cloud { animation: none; }
+  }
+
+  /* 文字 */
+  .face {
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-shadow: 0 1px 0.4em var(--shadow);
+  }
+  .date {
+    display: flex;
+    align-items: center;
+    gap: 0.45em;
+    color: var(--date);
+    font-weight: 600;
+    font-size: min(8vw, 13vh);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .weekday {
+    font-size: 0.8em;
+    font-weight: 700;
+    padding: 0.12em 0.5em;
+    border-radius: 999px;
+    background: var(--chip-bg);
+    color: var(--weekday);
+    text-shadow: none;
+  }
+  .weekday.sat { color: var(--sat); }
+  .weekday.sun { color: var(--sun); }
+  .time {
+    font-variant-numeric: tabular-nums;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-size: min(28vw, 50vh);
+    margin-top: 0.06em;
+  }
+  .ampm { font-size: 0.3em; font-weight: 500; margin-right: 0.15em; }
+</style>
+</head>
+<body>
+  <div class="clock" id="clock">
+    <div class="sky dawn"></div>
+    <div class="sky day"></div>
+    <div class="sky evening"></div>
+    <div class="sky night"></div>
+    <div class="stars" id="stars"></div>
+    <div class="clouds" id="clouds">
+      <div class="cloud" style="top:18%; width:22vmin; animation-delay:-20s"></div>
+      <div class="cloud" style="top:62%; width:16vmin; animation-delay:-75s; animation-duration:160s"></div>
+    </div>
+    <div class="orb sunball" id="sunball"></div>
+    <div class="orb moon" id="moon"></div>
+
+    <div class="face">
+      <div class="date"><span id="md"></span><span class="weekday" id="wd"></span></div>
+      <div class="time"><span class="ampm" id="ap"></span><span id="hm">--:--</span></div>
+    </div>
+  </div>
+
+<script>
+  // URLの末尾で表示を切り替えられる
+  //   ?h12=1        … 12時間表示
+  //   ?at=18:30     … 指定した時刻の空を確認する(見た目のテスト用)
+  //   ?theme=dark   … 外側の余白をダーク色に固定(light も可)
+  const params = new URLSearchParams(location.search);
+  const theme = params.get("theme");
+  if (theme === "dark" || theme === "light") {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+  const h12 = params.get("h12") === "1";
+  const at = (params.get("at") || "").match(/^(\d{1,2}):(\d{2})$/);
+
+  const $ = id => document.getElementById(id);
+  const clock = $("clock");
+  const days = ["日", "月", "火", "水", "木", "金", "土"];
+  const pad = n => String(n).padStart(2, "0");
+
+  // 星は毎回同じ位置に出るよう、決まった並びで配置する
+  (function makeStars() {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+    for (let i = 0; i < 40; i++) {
+      const s = document.createElement("div");
+      s.className = "star";
+      const size = 1 + rnd() * 2;
+      s.style.width = s.style.height = size + "px";
+      s.style.left = (rnd() * 100) + "%";
+      s.style.top = (rnd() * 70) + "%";
+      s.style.animationDelay = (-rnd() * 4) + "s";
+      $("stars").appendChild(s);
+    }
+  })();
+
+  // 時刻(分)から時間帯を決める
+  function phaseOf(min) {
+    if (min >= 5 * 60 && min < 7 * 60) return "dawn";
+    if (min >= 7 * 60 && min < 16 * 60 + 30) return "day";
+    if (min >= 16 * 60 + 30 && min < 19 * 60) return "evening";
+    return "night";
+  }
+
+  // 0〜1の進み具合から、左下→上→右下の弧の位置を出す
+  function placeOnArc(el, p) {
+    const x = 8 + p * 84;
+    const y = 88 - Math.sin(p * Math.PI) * 70;
+    el.style.left = x + "%";
+    el.style.top = y + "%";
+  }
+
+  function now() {
+    const d = new Date();
+    if (at) d.setHours(+at[1], +at[2], 0, 0);
+    return d;
+  }
+
+  function render() {
+    const d = now();
+    const min = d.getHours() * 60 + d.getMinutes();
+
+    // 文字
+    let h = d.getHours();
+    if (h12) {
+      $("ap").textContent = h < 12 ? "午前" : "午後";
+      h = h % 12 || 12;
+      $("hm").textContent = h + ":" + pad(d.getMinutes());
+    } else {
+      $("ap").textContent = "";
+      $("hm").textContent = pad(h) + ":" + pad(d.getMinutes());
+    }
+    $("md").textContent = (d.getMonth() + 1) + "月" + d.getDate() + "日";
+    const wd = d.getDay();
+    $("wd").textContent = days[wd];
+    $("wd").className = "weekday" + (wd === 6 ? " sat" : wd === 0 ? " sun" : "");
+
+    // 空
+    const phase = phaseOf(min);
+    clock.dataset.phase = phase;
+    document.querySelectorAll(".sky").forEach(s =>
+      s.classList.toggle("on", s.classList.contains(phase)));
+    $("stars").classList.toggle("on", phase === "night");
+    $("clouds").classList.toggle("on", phase === "day" || phase === "dawn");
+
+    // 太陽は5:30〜18:30、月は18:30〜翌5:30に弧を描く
+    const sunStart = 5 * 60 + 30, sunEnd = 18 * 60 + 30;
+    const sunUp = min >= sunStart && min < sunEnd;
+    $("sunball").classList.toggle("on", sunUp);
+    $("moon").classList.toggle("on", !sunUp);
+    if (sunUp) {
+      placeOnArc($("sunball"), (min - sunStart) / (sunEnd - sunStart));
+    } else {
+      const m = min >= sunEnd ? min - sunEnd : min + (24 * 60 - sunEnd);
+      placeOnArc($("moon"), m / (24 * 60 - (sunEnd - sunStart)));
+    }
+
+    setTimeout(render, 1000 - new Date().getMilliseconds());
+  }
+
+  // 最初の表示だけはふわっと切り替えず、すぐにその時間帯の空を出す
+  document.querySelectorAll(".sky, .orb, .stars, .clouds, .clock").forEach(el => el.style.transition = "none");
+  render();
+  requestAnimationFrame(() => requestAnimationFrame(() =>
+    document.querySelectorAll(".sky, .orb, .stars, .clouds, .clock").forEach(el => el.style.transition = "")));
+</script>
+</body>
+</html>
